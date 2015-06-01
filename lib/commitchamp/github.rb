@@ -32,13 +32,13 @@ module Commitchamp
     end
 
     def contributions_page(org, repo_name, page=1)
-      # params = { page: page }
-      # options = {
-      #   headers: @headers,
-      #   query: params
-      # }
-      self.class.get("/repos/#{org}/#{repo_name}/stats/contributors?page=#{page}&per_page=100", 
-                      headers: @headers)
+      params = { page: page }
+      options = {
+        headers: @headers,
+        query: params
+      }
+      self.class.get("/repos/#{org}/#{repo_name}/stats/contributors?per_page=100", 
+                      options)
     end
 
     # def get_contributions(org, repo_name)

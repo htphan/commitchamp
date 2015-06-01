@@ -16,6 +16,7 @@ module Commitchamp
       @github = Github.new
     end
 
+    # Creates a single user
     def create_user(username)
       if Commitchamp::User.find_by(login: username) == nil
         user = @github.get_user(username)
@@ -24,6 +25,7 @@ module Commitchamp
       Commitchamp::User.find_by(login: username)
     end
 
+    # Creates a single repo
     def create_repo(org, repo_name)
       if Commitchamp::Repo.find_by(name: repo_name, organization: org) == nil
         repo = @github.get_single_repo(org, repo_name)
@@ -35,6 +37,8 @@ module Commitchamp
       Commitchamp::Repo.find_by(name: repo_name, organization: org)
     end
 
+    # Takes an array of contributions and adds additions, deletions, and commits
+    # Returns an array of those sums
     def add_contributions(contribution_array)
       a = []
       d = []
@@ -54,6 +58,7 @@ module Commitchamp
       }
     end
 
+    # Creates a single contribution
     def create_contribution(contribution_array, org, repo_name)
       user = create_user(contribution_array['author']['login'])
       repo = create_repo(org, repo_name)
@@ -65,6 +70,7 @@ module Commitchamp
       end
     end
 
+    # Used to retrieve contributions of a repo and split if on multiple pages
     def split_contributions(org, repo)
       total_contributors = []
       page = 1
@@ -73,10 +79,30 @@ module Commitchamp
       total_contributors
     end
 
+    # Takes an organization and repository name:
+    # Retrieves all contributions of a repo and bulk creates contributions in database
     def bulk_contributions(org, repo)
       total_contributors = split_contributions(org, repo)
       total_contributors.each do |x|
         self.create_contribution(x, org, repo)
+      end
+    end
+
+    # Takes an organization name:
+    # Bulk creates repos and contributions of each repo for the specified organization
+    def bulk_org_contributions(org)
+      repos = @github.get_repos(org)
+      repos.each do |r|
+        self.bulk_contributions(org, r['name'])
+      end
+    end
+
+    # Displays the repositories of a specified organization
+    def display_org_repos(org)
+      repos = Commitchamp::Repo.where(organization: org).order(name: :asc)
+      puts "\n## Repositories for Organization: #{org}"
+      repos.each do |r|
+        puts "#{r.name}"
       end
     end
 
@@ -91,28 +117,52 @@ module Commitchamp
       input 
     end
 
+    # First: Prints all organizations in the database, and allows selection
+    # Second: Prints all repos in the specified organization, and allows selection
+    def print_existing_repos
+      puts "\n### Existing Organizations ###"
+      orgs = Commitchamp::Repo.select(:organization).distinct.order(organization: :asc)
+      orgs.each do |o|
+        puts "#{o.organization}"
+      end
+      input = prompt("\nWhich organization would you like to access?", /^.+$/)
+      puts
+      self.display_org_repos(input)
+    end
+
+    # Allows user interaction to specify control flow
     def choose_repo
-      input = prompt("Would you like to access an existing repo or fetch a new one? (e/n)", 
-                      /^[en]$/)
-      if input == 'n'
+      input = prompt("What would you like to do?"\
+                     "\n1: Access Existing Repo \n2: Access a new Repo"\
+                     "\n3: I want all the Repos!",
+                      /^[123]$/)
+      if input == '2'
         org = prompt("What is the name of the organization?", /^.+$/)
         repo = prompt("What is the name of the repository?", /^.+$/)
         puts "Please wait while we retrieve data..."
         self.bulk_contributions(org, repo)
         repo = Commitchamp::Repo.find_by(name: repo)
         repo.full_name
-      else
-        puts "\nExisting Repositories:"
-        puts "(organization/repository)"
-        repos = Commitchamp::Repo.all.to_a
-        repos.each do |r|
-          puts "#{r['full_name']}"
-        end
+      elsif input == "1"
+        self.print_existing_repos
         choice = prompt("\nWhich repository would you like to access?", /^.+$/)
+        choice = Commitchamp::Repo.find_by(name: choice).full_name
+        return choice
+      else
+        text =  "Wow... Greedy much? Fine..."\
+                "\nWhat is the name of the organization that you"\
+                "\n  would like to import all its repos?"
+        org = prompt(text, /^.+$/)
+        puts "Hold your horses... This is going to take a minute..."
+        self.bulk_org_contributions(org)
+        self.display_org_repos(org)
+        choice = prompt("\nWhich repo would you like to access?", /^.+$/)
+        choice = Commitchamp::Repo.find_by(name: choice).full_name
         return choice
       end
     end
 
+    # Displays the top 10 contributions of a specified repository
     def display_contributions(repo_full_name)
       repo = Commitchamp::Repo.find_by(full_name: repo_full_name)
       contributors = repo.contributions.order('additions + deletions + commits DESC').limit(10)
@@ -124,6 +174,7 @@ module Commitchamp
       puts
     end
 
+    # Initial run of the program
     def run
       input = prompt("Would you like to view contribution statistics on a repository? (y/n)", 
                         /^[yn]$/)
